@@ -1013,3 +1013,39 @@ TEST_CASE(PREFIX "Doesn't allow double-launch")
     REQUIRE(shell.Launch(CommonPaths::AppTemporaryDirectory()));
     CHECK_THROWS_AS(shell.Launch(CommonPaths::AppTemporaryDirectory()), std::logic_error);
 }
+
+TEST_CASE(PREFIX "ChDir respects literal square-bracketed directory despite glob expansion")
+{
+    const TempTestDir dir;
+    ShellTask shell;
+    QueuedAtomicHolder<std::pair<std::filesystem::path, bool>> cwd;
+    shell.SetOnPwdPrompt([&](const char *_cwd, bool _changed) { cwd.store({_cwd, _changed}); });
+
+    const auto bracketedDir = dir.directory / "a[bc]d" / "";
+    std::filesystem::create_directory(bracketedDir);
+
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
+
+    REQUIRE(shell.Launch(dir.directory));
+    REQUIRE(cwd.wait_to_become(5s, {dir.directory, false}));
+    REQUIRE(shell.CWD() == dir.directory.generic_string());
+
+    shell.ChDir(bracketedDir);
+    REQUIRE(cwd.wait_to_become(5s, {bracketedDir, true}));
+    CHECK(shell.CWD() == bracketedDir.generic_string());
+}
